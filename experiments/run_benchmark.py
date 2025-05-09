@@ -58,6 +58,7 @@ def run_traffic(cfg: DictConfig):
     ########################################
     dataset = get_dataset(cfg.dataset)
 
+    # TODO Could just set add_exogenous to False
     covariates = dict()
     if cfg.get('add_exogenous'):
         # encode time of the day and use it as exogenous variable
@@ -72,14 +73,17 @@ def run_traffic(cfg: DictConfig):
                                           window=cfg.window,
                                           stride=cfg.stride)
 
+    # TODO Could just set False or commented out
     if cfg.get('mask_as_exog', False) and 'u' in torch_dataset:
         torch_dataset.update_input_map(u=['u', 'mask'])
 
+    # TODO: Do experiment here. In theory scale_axis = (0, ) for sensitive spatial learning, else temporal
     scale_axis = (0,) if cfg.get('scale_axis') == 'node' else (0, 1)
     transform = {
         'target': StandardScaler(axis=scale_axis)
     }
 
+    # TODO set shuffle to False
     dm = SpatioTemporalDataModule(
         dataset=torch_dataset,
         scalers=transform,
@@ -100,6 +104,7 @@ def run_traffic(cfg: DictConfig):
 
     model_cls, pred_cls = get_model_class(cfg.model.name)
 
+    # TODO, just set 0
     d_exog = torch_dataset.input_map.u.shape[-1] if 'u' in torch_dataset else 0
     model_kwargs = dict(n_nodes=torch_dataset.n_nodes,
                         input_size=torch_dataset.n_channels,

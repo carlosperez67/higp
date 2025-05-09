@@ -1,5 +1,6 @@
 from lib.nn.hierarchical.models.hierarchical_time_than_space import HierarchicalTimeThanSpaceModel
 from lib.nn.hierarchical.pyramidal_gnn import PyramidalGNN
+import torch
 
 class HiGPTTSModel(HierarchicalTimeThanSpaceModel):
     r""""""
@@ -23,6 +24,7 @@ class HiGPTTSModel(HierarchicalTimeThanSpaceModel):
                  temporal_layers: int = 1,
                  gnn_layers: int = 1,
                  temp_decay: float = 0.99999,
+                 fixed_selects: list[torch.Tensor] | None = None,  # NEW
                  activation: str = 'elu'):
         super(HiGPTTSModel, self).__init__(input_size=input_size,
                                            horizon=horizon,
@@ -39,6 +41,7 @@ class HiGPTTSModel(HierarchicalTimeThanSpaceModel):
                                            exog_size=exog_size,
                                            temporal_layers=temporal_layers,
                                            activation=activation,
+                                           fixed_selects=fixed_selects,
                                            temp_decay=temp_decay)
 
         if top_down:

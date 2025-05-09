@@ -78,3 +78,113 @@ class MinCutHierarchyBuilder(nn.Module):
         seletcs.append(s_tot)
         sizes.append(1)
         return embs, adjs, seletcs, sizes, (min_cut_loss, reg_loss)
+
+
+# lib/nn/hierarchical/hierarchy_builders/fixed_hierarchy_builder.py
+import torch
+from torch import nn
+from torch_geometric.utils import to_dense_adj
+from torch_sparse import SparseTensor
+import tsl
+
+
+class FixedHierarchyBuilder(nn.Module):
+    r"""
+    Build a hierarchy from user‑defined selection matrices,
+    cascadingly removing empty parent columns so that
+    row(S_l) == col(S_{l-1}) after cleaning.
+    """
+
+    def __init__(self, selects):
+        super().__init__()
+        assert len(selects) >= 1, '`selects` cannot be empty'
+        self._selects = self._clean_and_register(selects)
+        self.n_levels = len(self._selects) + 2            # + level‑0 + global
+
+    # ---------- cascade clean ----------
+    def _clean_and_register(self, selects):
+        clean = []
+        keep_rows = slice(None)
+        for l, S in enumerate(selects):
+            S = S.float()[keep_rows]
+
+            keep_cols = S.sum(0) > 0
+            S = S[:, keep_cols]
+
+            row_zero = S.sum(1) == 0
+            if row_zero.any():
+                S[row_zero, 0] = 1.0
+
+
+            S = S / S.sum(1, keepdim=True)
+
+            self.register_buffer(f'select_{l}', S, persistent=False)
+            clean.append(S)
+
+
+            keep_rows = keep_cols
+
+        return clean
+
+    # ---------- helper ----------
+    def _iter_selects(self):
+        for i in range(len(self._selects)):
+            yield getattr(self, f'select_{i}')
+
+    # ---------- forward ----------
+    @torch.no_grad()
+    def forward(self, emb, edge_index, edge_weight=None):
+        # ---- level‑0 adjacency ----
+        if isinstance(edge_index, SparseTensor):
+            A = edge_index.to_dense()
+        else:
+            A = to_dense_adj(edge_index, edge_attr=edge_weight)[0].T
+        A = torch.max(A, A.T)
+        deg = A.sum(-1, keepdim=True)
+        A = A * (1 / (torch.sqrt(deg) + tsl.epsilon)) * \
+                (1 / (torch.sqrt(deg).T + tsl.epsilon))
+
+        batched = emb.dim() == 3
+        B = emb.size(0) if batched else None
+
+        embs   = [emb]
+        adjs   = [A]
+        selects = [None]
+        sizes  = [emb.size(-2)]
+
+        # ---- iterate levels ----
+        for S in self._iter_selects():
+            selects.append(S.unsqueeze(0).expand(B, -1, -1) if batched else S)
+
+            # feature pooling
+            if batched:
+                cl_sz  = S.sum(0).unsqueeze(0).unsqueeze(-1)
+                v_next = torch.einsum('bnd,nk->bkd', embs[-1], S) / cl_sz
+            else:
+                cl_sz  = S.sum(0).unsqueeze(-1)
+                v_next = (S.T @ embs[-1]) / cl_sz
+            embs.append(v_next)
+            sizes.append(v_next.size(-2))
+
+            # adjacency pooling
+            A = S.T @ A @ S
+            deg = A.sum(-1, keepdim=True)
+            A = A * (1 / (torch.sqrt(deg) + tsl.epsilon)) * \
+                    (1 / (torch.sqrt(deg).T + tsl.epsilon))
+            adjs.append(A)
+
+        # ---- global level ----
+        if batched:
+            s_tot = torch.ones(B, sizes[-1], 1, device=emb.device)
+            emb_global = embs[0].mean(-2, keepdim=True)
+        else:
+            s_tot = torch.ones(sizes[-1], 1, device=emb.device)
+            emb_global = embs[0].mean(-2, keepdim=True)
+
+        selects.append(s_tot)
+        adjs.append(None)
+        embs.append(emb_global)
+        sizes.append(1)
+
+        zero = torch.tensor(0., device=emb.device)
+        return embs, adjs, selects, sizes, (zero, zero)

@@ -3,6 +3,7 @@ from torch import nn
 import torch
 
 from lib.nn.hierarchical.hierarchy_builders import MinCutHierarchyBuilder
+from lib.nn.hierarchical.hierarchy_builders import FixedHierarchyBuilder
 from lib.nn.hierarchical.hierarchy_encoders import HierarchyEncoder
 from lib.nn.hierarchical.ops import compute_aggregation_matrix
 from lib.nn.utils import maybe_cat_emb
@@ -31,6 +32,7 @@ class HierarchicalTimeThanSpaceModel(BaseModel):
                  rnn_size: int = None,
                  exog_size: int = 0,
                  temporal_layers: int = 1,
+                 fixed_selects: list[torch.Tensor] | None = None,
                  temp_decay: float = 0.5,
                  activation: str = 'silu'):
         super(HierarchicalTimeThanSpaceModel, self).__init__()
@@ -53,13 +55,23 @@ class HierarchicalTimeThanSpaceModel(BaseModel):
             emb_size=emb_size
         )
 
-        self.hierarchy_builder = MinCutHierarchyBuilder(
-            n_nodes=n_nodes,
-            hidden_size=emb_size,
-            n_clusters=n_clusters,
-            n_levels=levels,
-            temp_decay=temp_decay
-        )
+        # self.hierarchy_builder = MinCutHierarchyBuilder(
+        #     n_nodes=n_nodes,
+        #     hidden_size=emb_size,
+        #     n_clusters=n_clusters,
+        #     n_levels=levels,
+        #     temp_decay=temp_decay
+        # )
+        if fixed_selects is None:  # NEW
+            self.hierarchy_builder = MinCutHierarchyBuilder(
+                n_nodes = n_nodes,
+                hidden_size = emb_size,
+                n_clusters = n_clusters,
+                n_levels = levels,
+                temp_decay = temp_decay
+            )
+        else:
+            self.hierarchy_builder = FixedHierarchyBuilder(fixed_selects)
 
         if rnn_size != hidden_size:
             self.temporal_encoder = RNN(
@@ -95,7 +107,8 @@ class HierarchicalTimeThanSpaceModel(BaseModel):
 
     def forward(self, x, edge_index, edge_weight=None, u=None):
         """"""
-        emb = self.emb()
+        emb = self.emb() # node embedding
+
         if self.training and not self.single_sample:
             emb = repeat(emb, 'n f -> b n f', b=x.size(0))
 
@@ -112,15 +125,17 @@ class HierarchicalTimeThanSpaceModel(BaseModel):
 
         # temporal encoding
         # weights are shared across levels
+        # turn x into shape [B, T_in, N0+N1+…+N_L, d_rnn]
         x = self.input_encoder(x=x,
                                u=u,
                                embs=embs,
                                selects=selects,
                                cat_output=True)
 
-        x = self.temporal_encoder(x)
+        x = self.temporal_encoder(x) # temporal encoder
         xs = list(torch.split(x, sizes, dim=-2))
 
+        # The y in paper
         outs = self.hierarchical_message_passing(x=xs,
                                                  adjs=adjs,
                                                  selects=selects,
