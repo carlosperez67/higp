@@ -2,20 +2,19 @@ name: higp
 channels:
   - pytorch
 #  - nvidia                    # remove for cpu installation
-  - pyg
+#  - pyg
   - conda-forge
   - defaults
 dependencies:
   - python=3.10
-  - pytorch=2.1
+  - pytorch=2.4
 #  - pytorch-cuda=12.1         # remove for cpu installation
   - lightning=2.1
   - numpy<2.0
-  - pyg=2.4
-  - pytorch-cluster
-  - pytorch-scatter
-  - pytorch-sparse
-  - pip
+  #- pyg=2.4
+  #- pytorch-cluster
+  #- pytorch-scatter
+  #- pytorch-sparse
   - pip:
       - einops
       - hydra-core
@@ -30,3 +29,8 @@ dependencies:
       - torchmetrics>=0.7
       - tqdm
       - tensorboard
+      - torch_geometric
+      - torch_scatter
+      - torch_sparse
+      - h5py
+      - matplotlib

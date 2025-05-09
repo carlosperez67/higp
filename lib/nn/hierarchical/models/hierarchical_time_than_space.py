@@ -160,4 +160,5 @@ class HierarchicalTimeThanSpaceModel(BaseModel):
         return out, \
                aggregation_matrix, \
                sizes[::-1], \
-               reg_losses
+               reg_losses, \
+               xs
